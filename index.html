@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="description" content="Accessible real-time Indian Banknote Identifier with spatial audio and haptic feedback.">
+  <title>DivyaDrishti - Currency Identifier</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Screen reader live regions for VoiceOver and TalkBack -->
+  <div id="sr-live-region" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+  <div id="sr-status-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Entire screen touch target -->
+  <main id="app-viewport" role="application" aria-label="Interactive Banknote Scanner. Single tap repeats denomination, double tap toggles torch, two finger tap clears tally.">
+    <!-- Camera Viewfinder -->
+    <video id="camera-stream" playsinline autoplay muted aria-hidden="true"></video>
+    <canvas id="inference-canvas" class="sr-only" aria-hidden="true"></canvas>
+
+    <!-- Visual High-Contrast HUD -->
+    <section class="hud-overlay" aria-hidden="true">
+      <header class="hud-header">
+        <h1 class="hud-title">CURRENCY IDENTIFIER</h1>
+        <div id="torch-badge" class="badge">TORCH: OFF</div>
+      </header>
+
+      <div class="hud-main">
+        <div class="denomination-display">
+          <span class="label">DETECTED NOTE</span>
+          <span id="detected-val" class="value">READY</span>
+        </div>
+
+        <div class="tally-display">
+          <span class="label">RUNNING TOTAL</span>
+          <span id="tally-val" class="value">₹0</span>
+        </div>
+      </div>
+
+      <footer class="hud-footer">
+        <p id="guidance-text" class="guidance-hint">Align banknote within camera view</p>
+        <p class="gesture-hints">1 Tap: Repeat | 2 Tap: Torch | 2 Fingers: Reset</p>
+      </footer>
+    </section>
+
+    <!-- Fallback Accessible Button Controls for Keyboard Navigation -->
+    <nav class="sr-only" aria-label="Accessible Controls">
+      <button id="btn-repeat" type="button">Repeat Last Detection</button>
+      <button id="btn-torch" type="button">Toggle Flashlight</button>
+      <button id="btn-reset" type="button">Reset Total Tally</button>
+    </nav>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

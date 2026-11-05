@@ -1,0 +1,158 @@
+:root {
+  --color-bg: #0a0a0a;
+  --color-high-contrast: #ffe500;
+  --color-text-sub: #ffffff;
+  --color-border: #ffe500;
+  --color-badge-off: #333333;
+  --color-badge-on: #ffe500;
+  --font-primary: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --min-touch-target: 48px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background-color: var(--color-bg);
+  color: var(--color-high-contrast);
+  font-family: var(--font-primary);
+  overflow: hidden;
+}
+
+/* WCAG AAA Accessible Screen Reader Utility */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+#app-viewport {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background-color: var(--color-bg);
+  cursor: pointer;
+}
+
+#camera-stream {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.35; /* Keeps camera feed visible while maintaining high-contrast foreground legibility */
+  z-index: 1;
+}
+
+.hud-overlay {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(16px, 4vw, 32px);
+  pointer-events: none;
+}
+
+.hud-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 3px solid var(--color-border);
+  padding-bottom: 12px;
+}
+
+.hud-title {
+  font-size: clamp(1.2rem, 3.5vw, 1.8rem);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  color: var(--color-high-contrast);
+}
+
+.badge {
+  font-size: 0.9rem;
+  font-weight: 800;
+  padding: 6px 12px;
+  border: 2px solid var(--color-high-contrast);
+  background-color: var(--color-badge-off);
+  color: var(--color-text-sub);
+  border-radius: 4px;
+  min-height: var(--min-touch-target);
+  display: flex;
+  align-items: center;
+}
+
+.badge.active {
+  background-color: var(--color-badge-on);
+  color: #000000;
+}
+
+.hud-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.denomination-display, .tally-display {
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 10, 10, 0.85);
+  border: 2px solid var(--color-border);
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.label {
+  font-size: clamp(0.9rem, 2.5vw, 1.2rem);
+  color: var(--color-text-sub);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.value {
+  font-size: clamp(2.4rem, 8vw, 4.2rem);
+  font-weight: 900;
+  color: var(--color-high-contrast);
+  line-height: 1.1;
+}
+
+.hud-footer {
+  border-top: 3px solid var(--color-border);
+  padding-top: 12px;
+  background: rgba(10, 10, 10, 0.85);
+  border-radius: 4px;
+}
+
+.guidance-hint {
+  font-size: clamp(1.1rem, 3vw, 1.6rem);
+  font-weight: 800;
+  color: var(--color-high-contrast);
+  margin-bottom: 6px;
+}
+
+.gesture-hints {
+  font-size: clamp(0.85rem, 2vw, 1rem);
+  color: var(--color-text-sub);
+  font-weight: 600;
+}
