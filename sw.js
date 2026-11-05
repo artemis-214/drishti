@@ -1,8 +1,9 @@
 /**
- * Service Worker: Cache-First Offline Engine
+ * Service Worker: Offline Cache Engine for ONNX Runtime Web
+ * Pre-caches web app assets, ONNX model weights, label mappings, and WASM binaries.
  */
 
-const CACHE_NAME = 'banknote-id-only-v1';
+const CACHE_NAME = 'divyadrishti-ort-v1';
 
 const STATIC_ASSETS = [
   './',
@@ -10,11 +11,12 @@ const STATIC_ASSETS = [
   './style.css',
   './app.js',
   './manifest.json',
-  './model/model.json',
-  './model/metadata.json',
-  './model/weights.bin',
-  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
-  'https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js'
+  './model/currency_mobilenet.onnx',
+  './model/classes.json',
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js',
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm',
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-simd.wasm',
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm.wasm'
 ];
 
 self.addEventListener('install', (event) => {
@@ -47,14 +49,17 @@ self.addEventListener('fetch', (event) => {
       if (cachedResponse) {
         return cachedResponse;
       }
+
       return fetch(event.request).then((networkResponse) => {
         if (!networkResponse || networkResponse.status !== 200) {
           return networkResponse;
         }
+
         const responseToCache = networkResponse.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, responseToCache);
         });
+
         return networkResponse;
       }).catch(() => {
         if (event.request.mode === 'navigate') {

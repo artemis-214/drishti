@@ -1,50 +1,55 @@
 /**
  * Indian Banknote Identifier - app.js
- * Hardened Classification Pipeline: Temporal Consensus, Margin Filtering & Debounce
+ * Powered by ONNX Runtime Web (MobileNetV3 PyTorch Model)
  *
- * Architecture Highlights:
- * 1. Top-2 Delta Margin Validation: Drops frames where the model hesitates between two classes.
- * 2. Rolling History Window (N = 7): Smooths single-frame camera exposure and sensor noise.
- * 3. Supermajority Consensus (K = 5/7): Guarantees spatial and temporal agreement before announcement.
- * 4. Noise Drain Reset: Detects empty scene/background to allow clean re-scans of identical notes.
+ * Pipeline Overview:
+ * 1. Preprocessing: 224x224 Offscreen Canvas -> NCHW Planar RGB Layout -> ImageNet Normalization.
+ * 2. Inference: ONNX Runtime Web session (WebGL with WebAssembly fallback).
+ * 3. Softmax: Numerical stability scaling for probabilities.
+ * 4. Temporal Consensus: 7-frame sliding window with 5/7 voting & delta margin gating.
  */
 
 class IndianBanknoteIdentifier {
   constructor() {
-    // Relative path safe for GitHub Pages deployments
-    this.MODEL_PATH = './model/';
+    // Relative paths safe for GitHub Pages deployments
+    this.MODEL_PATH = './model/currency_mobilenet.onnx';
+    this.CLASSES_PATH = './model/classes.json';
+
+    // Model Dimensions & Normalization Constants (ImageNet)
+    this.INPUT_WIDTH = 224;
+    this.INPUT_HEIGHT = 224;
+    this.MEAN = [0.485, 0.456, 0.406];
+    this.STD = [0.229, 0.224, 0.225];
 
     // DOM Elements
     this.video = document.getElementById('camera-stream');
     this.announcer = document.getElementById('announcer');
     this.displayNote = document.getElementById('display-note');
     this.displayTally = document.getElementById('display-tally');
-    this.badgeMode = document.getElementById('badge-mode');
     this.badgeTorch = document.getElementById('badge-torch');
     this.guidanceTip = document.getElementById('guidance-tip');
+    this.debugDisplay = document.getElementById('debug-display');
     this.surface = document.getElementById('app-surface');
     this.gateOverlay = document.getElementById('gate-overlay');
     this.btnGateStart = document.getElementById('btn-gate-start');
 
-    // Create or locate the telemetry debug element
-    this.debugDisplay = document.getElementById('debug-display');
-    if (!this.debugDisplay) {
-      this.debugDisplay = document.createElement('div');
-      this.debugDisplay.id = 'debug-display';
-      this.debugDisplay.className = 'debug-telemetry';
-      this.debugDisplay.setAttribute('aria-hidden', 'true'); // Prevents SR clutter
-      const hudBottom = document.querySelector('.hud-bottom');
-      if (hudBottom) {
-        hudBottom.appendChild(this.debugDisplay);
-      }
-    }
+    // Preprocessing Offscreen Canvas
+    this.offscreenCanvas = document.createElement('canvas');
+    this.offscreenCanvas.width = this.INPUT_WIDTH;
+    this.offscreenCanvas.height = this.INPUT_HEIGHT;
+    this.offscreenCtx = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
 
-    // Hardware & Runtime State
-    this.model = null;
+    // ONNX Session & Labels
+    this.session = null;
+    this.classes = [];
+    this.inputName = 'input';
+    this.outputName = 'output';
+
+    // Stream & Hardware State
     this.stream = null;
     this.videoTrack = null;
     this.isTorchOn = false;
-    this.isTallyMode = Boolean(this.displayTally); // Auto-detect tally UI presence
+    this.isTallyMode = Boolean(this.displayTally);
     this.isRunning = false;
 
     // Financial State
@@ -53,21 +58,18 @@ class IndianBanknoteIdentifier {
     this.lastAnnouncementTime = 0;
     this.lastActiveVisionTime = Date.now();
 
-    // ==========================================
-    // STABILITY & TEMPORAL FILTER CONFIGURATION
-    // ==========================================
-    this.WINDOW_SIZE = 7;             // N = 7 frames buffer
-    this.MIN_CONSISTENT_FRAMES = 5;   // Consensus threshold (5/7 supermajority)
-    this.MIN_CONFIDENCE_THRESHOLD = 0.82; // Absolute top-1 certainty cutoff
-    this.CONFIDENCE_MARGIN = 0.25;    // (top1 - top2) delta margin requirement
-    this.ANNOUNCE_COOLDOWN_MS = 2800; // Cooldown before re-announcing identical note
-    this.NOISE_RESET_WINDOW_MS = 3000; // Inactivity window to forget previous note
-    this.INFERENCE_INTERVAL_MS = 140; // ~7 FPS sampling rate for fast response
+    // Temporal Consensus Parameters
+    this.WINDOW_SIZE = 7;
+    this.MIN_CONSISTENT_FRAMES = 5;
+    this.MIN_CONFIDENCE_THRESHOLD = 0.82;
+    this.CONFIDENCE_MARGIN = 0.25;
+    this.ANNOUNCE_COOLDOWN_MS = 2800;
+    this.NOISE_RESET_WINDOW_MS = 3000;
+    this.INFERENCE_INTERVAL_MS = 140;
 
-    // Rolling temporal sliding window
     this.predictionHistory = [];
 
-    // Haptic vibration profiles (ms)
+    // Multi-Sense Haptic Patterns
     this.HAPTIC_PROFILES = {
       10: [100],
       20: [100, 50, 100],
@@ -75,18 +77,20 @@ class IndianBanknoteIdentifier {
       100: [300, 100, 100],
       200: [300, 100, 300],
       500: [300, 100, 300, 100, 300],
+      2000: [400, 100, 400],
       reset: [80, 50, 80, 50, 80],
       torch: [60]
     };
 
-    // Clean pronunciation map
+    // Pronunciation Map
     this.WORDS_MAP = {
       10: "Ten",
       20: "Twenty",
       50: "Fifty",
       100: "One hundred",
       200: "Two hundred",
-      500: "Five hundred"
+      500: "Five hundred",
+      2000: "Two thousand"
     };
 
     // Gesture State
@@ -105,25 +109,25 @@ class IndianBanknoteIdentifier {
 
   async unlockAndStart() {
     this.gateOverlay.classList.add('hidden');
-    this.speakResult("Starting camera and initializing classifier.", true);
+    this.speakResult("Starting camera and compiling ONNX neural engine.", true);
 
     try {
-      await Promise.all([this.initCamera(), this.loadModel()]);
+      await Promise.all([this.initCamera(), this.loadOnnxModel()]);
       this.bindGestures();
       this.bindAccessibleButtons();
       this.isRunning = true;
       this.speakResult("Scanner active. Hold banknote steady.", true);
       this.predictLoop();
     } catch (err) {
-      console.error("Initialization error:", err);
+      console.error("Initialization failure:", err);
       if (this.guidanceTip) {
-        this.guidanceTip.textContent = "Error loading camera or model";
+        this.guidanceTip.textContent = "Error: Model compilation failed";
       }
-      this.speakResult("Failed to initialize scanner. Check camera permissions and reload.", true);
+      this.speakResult("Engine initialization failed. Please reload and check permissions.", true);
     }
   }
 
-  /* ---------------- HARDWARE SUBSYSTEMS ---------------- */
+  /* ---------------- HARDWARE & CAMERA ---------------- */
 
   async initCamera() {
     const constraints = {
@@ -147,19 +151,13 @@ class IndianBanknoteIdentifier {
     });
   }
 
-  async loadModel() {
-    const modelURL = `${this.MODEL_PATH}model.json`;
-    const metadataURL = `${this.MODEL_PATH}metadata.json`;
-    this.model = await tmImage.load(modelURL, metadataURL);
-  }
-
   async toggleTorch() {
     if (!this.videoTrack) return;
 
     try {
       const caps = this.videoTrack.getCapabilities ? this.videoTrack.getCapabilities() : {};
       if (!caps.torch) {
-        this.speakResult("Flashlight not supported on this device.", true);
+        this.speakResult("Flashlight unavailable on this device.", true);
         return;
       }
 
@@ -174,86 +172,168 @@ class IndianBanknoteIdentifier {
         this.badgeTorch.classList.toggle('badge-dim', !this.isTorchOn);
       }
       this.speakResult(`Flashlight ${this.isTorchOn ? 'on' : 'off'}.`, true);
-    } catch (e) {
+    } catch (err) {
       this.speakResult("Unable to toggle flashlight.", true);
     }
   }
 
-  /* ---------------- INFERENCE & STABILIZATION ENGINE ---------------- */
+  /* ---------------- ONNX MODEL & PREPROCESSING ---------------- */
+
+  async loadOnnxModel() {
+    // Configure WebAssembly execution settings
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.simd = true;
+
+    // Fetch classes dictionary
+    const classRes = await fetch(this.CLASSES_PATH);
+    this.classes = await classRes.json();
+
+    // Create session prioritizing WebGL with WASM fallback
+    this.session = await ort.InferenceSession.create(this.MODEL_PATH, {
+      executionProviders: ['webgl', 'wasm']
+    });
+
+    // Detect actual input and output layer names dynamically
+    this.inputName = this.session.inputNames[0] || 'input';
+    this.outputName = this.session.outputNames[0] || 'output';
+
+    // Warm-up pass to compile WebGL shaders and allocate tensors
+    const dummyData = new Float32Array(1 * 3 * this.INPUT_WIDTH * this.INPUT_HEIGHT);
+    const dummyTensor = new ort.Tensor('float32', dummyData, [1, 3, this.INPUT_WIDTH, this.INPUT_HEIGHT]);
+    await this.session.run({ [this.inputName]: dummyTensor });
+  }
+
+  preprocessFrame() {
+    // Center-crop video square directly into 224x224 offscreen surface
+    const vWidth = this.video.videoWidth;
+    const vHeight = this.video.videoHeight;
+    const minDim = Math.min(vWidth, vHeight);
+    const startX = (vWidth - minDim) / 2;
+    const startY = (vHeight - minDim) / 2;
+
+    this.offscreenCtx.drawImage(
+      this.video,
+      startX, startY, minDim, minDim,
+      0, 0, this.INPUT_WIDTH, this.INPUT_HEIGHT
+    );
+
+    const frameData = this.offscreenCtx.getImageData(0, 0, this.INPUT_WIDTH, this.INPUT_HEIGHT).data;
+    const channelSize = this.INPUT_WIDTH * this.INPUT_HEIGHT;
+    const floatData = new Float32Array(3 * channelSize);
+
+    // Transform Interleaved RGBA to Planar NCHW with ImageNet normalization
+    for (let i = 0; i < channelSize; i++) {
+      const r = frameData[i * 4];
+      const g = frameData[i * 4 + 1];
+      const b = frameData[i * 4 + 2];
+
+      floatData[i] = ((r / 255.0) - this.MEAN[0]) / this.STD[0];                 // Red channel
+      floatData[channelSize + i] = ((g / 255.0) - this.MEAN[1]) / this.STD[1];   // Green channel
+      floatData[2 * channelSize + i] = ((b / 255.0) - this.MEAN[2]) / this.STD[2]; // Blue channel
+    }
+
+    return new ort.Tensor('float32', floatData, [1, 3, this.INPUT_WIDTH, this.INPUT_HEIGHT]);
+  }
+
+  softmax(logits) {
+    let maxLogit = -Infinity;
+    for (let i = 0; i < logits.length; i++) {
+      if (logits[i] > maxLogit) maxLogit = logits[i];
+    }
+
+    const expValues = new Float32Array(logits.length);
+    let sumExp = 0.0;
+
+    for (let i = 0; i < logits.length; i++) {
+      expValues[i] = Math.exp(logits[i] - maxLogit);
+      sumExp += expValues[i];
+    }
+
+    for (let i = 0; i < logits.length; i++) {
+      expValues[i] /= sumExp;
+    }
+
+    return expValues;
+  }
+
+  /* ---------------- INFERENCE LOOP & SLIDING WINDOW ---------------- */
 
   predictLoop() {
     const step = async () => {
       if (this.isRunning && this.video.readyState === this.video.HAVE_ENOUGH_DATA) {
-        await this.processInferenceFrame();
+        await this.processFrame();
       }
       setTimeout(step, this.INFERENCE_INTERVAL_MS);
     };
     step();
   }
 
-  async processInferenceFrame() {
+  async processFrame() {
     try {
-      const rawPredictions = await this.model.predict(this.video);
+      const tensor = this.preprocessFrame();
+      const results = await this.session.run({ [this.inputName]: tensor });
+      const logits = results[this.outputName].data;
+      const probabilities = this.softmax(logits);
 
-      // Sort descending to isolate top-1 and top-2 contenders
-      rawPredictions.sort((a, b) => b.probability - a.probability);
-      const top1 = rawPredictions[0];
-      const top2 = rawPredictions[1] || { className: "none", probability: 0.0 };
+      // Map probabilities to indexed labels
+      const predictions = this.classes.map((className, index) => ({
+        className: String(className),
+        probability: probabilities[index]
+      }));
+
+      // Sort descending
+      predictions.sort((a, b) => b.probability - a.probability);
+      const top1 = predictions[0];
+      const top2 = predictions[1] || { className: 'none', probability: 0.0 };
 
       const top1Prob = top1.probability;
       const top2Prob = top2.probability;
       const margin = top1Prob - top2Prob;
-      const isBackground = top1.className.toLowerCase().includes("background");
+      const isBackground = top1.className.toLowerCase() === 'background';
 
-      // ==========================================
-      // REQUIREMENT 1: THREE-TIER ENTRY GATE
-      // ==========================================
-      const isFrameValid =
+      // Three-Tier Entry Gate Check
+      const isValid =
         top1Prob >= this.MIN_CONFIDENCE_THRESHOLD &&
         margin >= this.CONFIDENCE_MARGIN &&
         !isBackground;
 
-      const frameLabel = isFrameValid ? top1.className : "noise";
+      const frameLabel = isValid ? top1.className : 'noise';
 
-      // Append candidate to rolling window and maintain buffer size N = 7
+      // Sliding Window Maintenance (N = 7)
       this.predictionHistory.push(frameLabel);
       if (this.predictionHistory.length > this.WINDOW_SIZE) {
         this.predictionHistory.shift();
       }
 
-      // ==========================================
-      // REQUIREMENT 2: MAJORITY VOTING CONSENSUS
-      // ==========================================
+      // Majority Consensus Count
       const counts = {};
       let consensusCandidate = null;
       let maxVotes = 0;
 
       for (const label of this.predictionHistory) {
         counts[label] = (counts[label] || 0) + 1;
-        if (label !== "noise" && counts[label] > maxVotes) {
+        if (label !== 'noise' && counts[label] > maxVotes) {
           maxVotes = counts[label];
           consensusCandidate = label;
         }
       }
 
-      // Update Visual Telemetry (Does not trigger aria-live)
       this.renderTelemetry(top1, top2, maxVotes, consensusCandidate);
 
-      // Check if candidate met supermajority (K >= 5 / 7)
+      // Supermajority Evaluation (5/7 votes)
       if (consensusCandidate && maxVotes >= this.MIN_CONSISTENT_FRAMES) {
         this.lastActiveVisionTime = Date.now();
-        this.evaluateConsensusCandidate(consensusCandidate);
+        this.evaluateConsensus(consensusCandidate);
       } else {
-        // Evaluate noise/empty scene decay
         this.evaluateNoiseDrain();
       }
     } catch (err) {
-      console.warn("Skipped inference frame due to processing interruption:", err);
+      console.warn("Inference cycle skipped:", err);
     }
   }
 
-  evaluateConsensusCandidate(rawClassName) {
-    const parsedDenomination = this.extractDenomination(rawClassName);
+  evaluateConsensus(candidateLabel) {
+    const parsedDenomination = this.extractDenomination(candidateLabel);
     if (!parsedDenomination) return;
 
     const now = Date.now();
@@ -264,7 +344,6 @@ class IndianBanknoteIdentifier {
       this.currentAnnouncedNote = parsedDenomination;
       this.lastAnnouncementTime = now;
 
-      // Update Financial State if Tally Mode is active
       if (this.isTallyMode) {
         this.sessionTotal += parsedDenomination;
         if (this.displayTally) {
@@ -272,15 +351,13 @@ class IndianBanknoteIdentifier {
         }
       }
 
-      // Update Visuals
       if (this.displayNote) {
         this.displayNote.textContent = `₹${parsedDenomination}`;
       }
       if (this.guidanceTip) {
-        this.guidanceTip.textContent = `Confirmed: ₹${parsedDenomination}`;
+        this.guidanceTip.textContent = `Identified: ₹${parsedDenomination}`;
       }
 
-      // Dispatch Multimodal Feedback
       this.triggerHaptic(this.HAPTIC_PROFILES[parsedDenomination] || [200]);
 
       const noteWord = this.WORDS_MAP[parsedDenomination] || parsedDenomination;
@@ -291,14 +368,13 @@ class IndianBanknoteIdentifier {
 
       this.speakResult(announcement, true);
 
-      // Flush buffer immediately to prevent double-firing in the same burst
+      // Reset buffer to prevent multiple fires within the same frame burst
       this.predictionHistory = [];
     }
   }
 
   evaluateNoiseDrain() {
     const now = Date.now();
-    // If the scene has lacked consensus for > 3000ms, unlock the previous note
     if (this.currentAnnouncedNote !== null && (now - this.lastActiveVisionTime) > this.NOISE_RESET_WINDOW_MS) {
       this.currentAnnouncedNote = null;
       if (this.guidanceTip) {
@@ -312,20 +388,16 @@ class IndianBanknoteIdentifier {
     return match ? parseInt(match[0], 10) : null;
   }
 
-  /* ---------------- TELEMETRY HUD (REQUIREMENT 3) ---------------- */
-
   renderTelemetry(top1, top2, votes, candidate) {
     if (!this.debugDisplay) return;
-
     const p1 = (top1.probability * 100).toFixed(0);
     const p2 = (top2.probability * 100).toFixed(0);
-    const candidateName = candidate ? candidate.replace('_rupees', '') : 'None';
-
+    const cand = candidate || 'None';
     this.debugDisplay.textContent =
-      `Top: ${top1.className} (${p1}%) | Runner-up: ${top2.className} (${p2}%) | Consensus: ${votes}/${this.WINDOW_SIZE} (${candidateName})`;
+      `Top: ₹${top1.className} (${p1}%) | 2nd: ₹${top2.className} (${p2}%) | Votes: ${votes}/${this.WINDOW_SIZE} (${cand})`;
   }
 
-  /* ---------------- MULTIMODAL FEEDBACK & UTILITIES ---------------- */
+  /* ---------------- SPEECH & HAPTICS ---------------- */
 
   speakResult(text, cancelOngoing = false) {
     if (!('speechSynthesis' in window)) return;
@@ -334,7 +406,6 @@ class IndianBanknoteIdentifier {
       window.speechSynthesis.cancel();
     }
 
-    // Assertive live region for VoiceOver & TalkBack
     if (this.announcer) {
       this.announcer.textContent = '';
       setTimeout(() => {
@@ -347,9 +418,9 @@ class IndianBanknoteIdentifier {
     utterance.rate = 1.05;
 
     const voices = window.speechSynthesis.getVoices();
-    const subcontinentalVoice = voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang.startsWith('en'));
-    if (subcontinentalVoice) {
-      utterance.voice = subcontinentalVoice;
+    const inVoice = voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang.startsWith('en'));
+    if (inVoice) {
+      utterance.voice = inVoice;
     }
 
     window.speechSynthesis.speak(utterance);
@@ -360,7 +431,7 @@ class IndianBanknoteIdentifier {
       try {
         navigator.vibrate(pattern);
       } catch (e) {
-        // Graceful fallback for devices restricting vibration
+        // Safe vendor policy fallback
       }
     }
   }
@@ -369,7 +440,6 @@ class IndianBanknoteIdentifier {
 
   bindGestures() {
     this.surface.addEventListener('touchstart', (e) => {
-      // Two-Finger Tap: Reset Running Tally
       if (e.touches.length === 2) {
         e.preventDefault();
         clearTimeout(this.singleTapTimer);
@@ -378,7 +448,6 @@ class IndianBanknoteIdentifier {
         return;
       }
 
-      // Long press (1.5s) fallback for single-hand reset
       if (e.touches.length === 1) {
         this.touchStartTime = Date.now();
         this.longPressTimer = setTimeout(() => {
@@ -390,21 +459,16 @@ class IndianBanknoteIdentifier {
     this.surface.addEventListener('touchend', (e) => {
       clearTimeout(this.longPressTimer);
 
-      if (Date.now() - this.touchStartTime > 600) {
-        return; // Ignore tap if held past long-press margin
-      }
-
+      if (Date.now() - this.touchStartTime > 600) return;
       if (e.touches.length > 0) return;
 
       const currentTime = Date.now();
       const tapGap = currentTime - this.lastTapTime;
 
       if (tapGap < 300 && tapGap > 0) {
-        // Double tap: Toggle Torch
         clearTimeout(this.singleTapTimer);
         this.toggleTorch();
       } else {
-        // Single tap: Repeat last denomination
         this.singleTapTimer = setTimeout(() => {
           this.repeatAnnouncement();
         }, 300);
@@ -418,12 +482,10 @@ class IndianBanknoteIdentifier {
     const btnRepeat = document.getElementById('sr-btn-repeat');
     const btnTorch = document.getElementById('sr-btn-torch');
     const btnReset = document.getElementById('sr-btn-reset');
-    const btnMode = document.getElementById('sr-btn-mode');
 
     if (btnRepeat) btnRepeat.addEventListener('click', () => this.repeatAnnouncement());
     if (btnTorch) btnTorch.addEventListener('click', () => this.toggleTorch());
     if (btnReset) btnReset.addEventListener('click', () => this.resetTally());
-    if (btnMode) btnMode.addEventListener('click', () => this.toggleMode());
   }
 
   repeatAnnouncement() {
@@ -437,8 +499,8 @@ class IndianBanknoteIdentifier {
       this.speakResult(phrase, true);
     } else {
       const phrase = this.isTallyMode
-        ? `No note recognized yet. Session total: ${this.sessionTotal} rupees.`
-        : "No note recognized yet.";
+        ? `No note scanned yet. Session total: ${this.sessionTotal} rupees.`
+        : "No note scanned yet.";
       this.speakResult(phrase, true);
     }
   }
@@ -456,14 +518,6 @@ class IndianBanknoteIdentifier {
     this.speakResult("Tally reset to zero.", true);
   }
 
-  toggleMode() {
-    this.isTallyMode = !this.isTallyMode;
-    if (this.badgeMode) {
-      this.badgeMode.textContent = this.isTallyMode ? "TALLY MODE" : "SINGLE SCAN";
-    }
-    this.speakResult(`Switched to ${this.isTallyMode ? "Tally Mode" : "Single Scan Mode"}.`, true);
-  }
-
   registerServiceWorker() {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -475,7 +529,6 @@ class IndianBanknoteIdentifier {
   }
 }
 
-// Bootstrap once the DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
   window.identifier = new IndianBanknoteIdentifier();
 });

@@ -5,21 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   <meta name="theme-color" content="#0A0A0A">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Accessible real-time Indian Banknote Identifier with instant voice announcements and haptic cues.">
+  <meta name="description" content="Accessible real-time Indian Banknote Identifier powered by ONNX Runtime Web.">
   <title>DivyaDrishti - Banknote Identifier</title>
   
   <link rel="manifest" href="./manifest.json">
   <link rel="stylesheet" href="./style.css">
 
-  <!-- Pinned CDN scripts for offline caching -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+  <!-- ONNX Runtime Web Official Standalone CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 </head>
 <body>
   <!-- WCAG 2.2 Assertive Live Region for Screen Readers -->
   <div id="announcer" aria-live="assertive" aria-atomic="true" class="sr-only"></div>
 
-  <!-- Audio & Camera Unlock Gate -->
+  <!-- Audio & Camera Unlock Barrier -->
   <div id="gate-overlay" role="dialog" aria-modal="true" aria-labelledby="gate-title" class="gate-overlay">
     <div class="gate-card">
       <h1 id="gate-title">Indian Banknote Identifier</h1>
@@ -28,15 +27,15 @@
     </div>
   </div>
 
-  <!-- Interactive Viewport Surface -->
+  <!-- Interactive Full Viewport Surface -->
   <main id="app-surface" role="main" aria-label="Interactive Banknote Scanner Surface">
-    <!-- Camera Feed -->
+    <!-- Camera Viewport -->
     <video id="camera-stream" playsinline autoplay muted aria-hidden="true"></video>
 
     <!-- Visual High-Contrast HUD -->
     <div class="hud" aria-hidden="true">
       <header class="hud-top">
-        <span class="badge">IDENTIFIER</span>
+        <span id="badge-mode" class="badge">IDENTIFIER</span>
         <span id="badge-torch" class="badge badge-dim">TORCH: OFF</span>
       </header>
 
@@ -45,11 +44,17 @@
           <span class="stat-caption">DETECTED NOTE</span>
           <span id="display-note" class="stat-value note-value">READY</span>
         </div>
+
+        <div class="stat-group" id="tally-box">
+          <span class="stat-caption">SESSION TALLY</span>
+          <span id="display-tally" class="stat-value tally-value">₹0</span>
+        </div>
       </section>
 
       <footer class="hud-bottom">
         <p class="status-tip" id="guidance-tip">Point camera at a rupee note</p>
-        <p class="instruction-legend">1 Tap: Repeat Note | 2 Tap: Toggle Torch</p>
+        <div id="debug-display" class="debug-telemetry">Initializing ONNX Runtime...</div>
+        <p class="instruction-legend">1 Tap: Repeat Note | 2 Tap: Toggle Torch | 2 Fingers: Reset Tally</p>
       </footer>
     </div>
 
@@ -57,6 +62,7 @@
     <nav class="sr-controls" aria-label="Accessible Hardware Controls">
       <button id="sr-btn-repeat" type="button">Repeat Detected Note</button>
       <button id="sr-btn-torch" type="button">Toggle Flashlight</button>
+      <button id="sr-btn-reset" type="button">Reset Running Tally to Zero</button>
     </nav>
   </main>
 
