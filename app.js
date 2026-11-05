@@ -35,7 +35,7 @@ class IndianBanknoteIdentifier {
     this.lastConfirmedTime = 0;
 
     // Detection Thresholds
-    this.CONFIDENCE_THRESHOLD = 0.85;
+    this.CONFIDENCE_THRESHOLD = 0.65;
     this.REPEAT_WINDOW_MS = 2500; // 2.5 seconds debounce for the same bill
     this.INFERENCE_INTERVAL_MS = 250; // Throttled inference loop
 
@@ -77,7 +77,7 @@ class IndianBanknoteIdentifier {
 
   async unlockAndStart() {
     this.gateOverlay.classList.add('hidden');
-    
+
     // Unlock AudioContext & SpeechSynthesis on physical user interaction
     this.speak("Starting camera and loading currency model.", true);
 
@@ -121,7 +121,7 @@ class IndianBanknoteIdentifier {
   async loadModel() {
     const modelURL = `${this.MODEL_PATH}model.json`;
     const metadataURL = `${this.MODEL_PATH}metadata.json`;
-    
+
     this.model = await tmImage.load(modelURL, metadataURL);
   }
 
@@ -162,32 +162,37 @@ class IndianBanknoteIdentifier {
   }
 
   async predictFrame() {
-    try {
-      const predictions = await this.model.predict(this.video);
-      let highestProb = 0;
-      let topClass = "";
-
-      for (let i = 0; i < predictions.length; i++) {
-        if (predictions[i].probability > highestProb) {
-          highestProb = predictions[i].probability;
-          topClass = predictions[i].className;
-        }
-      }
-
-      // Ignore background noise or indeterminate certainty
-      if (topClass === "background" || highestProb < this.CONFIDENCE_THRESHOLD) {
-        return;
-      }
-
-      // Parse integer denomination from standard label convention (e.g., "500_rupees" -> 500)
-      const parsedDenomination = parseInt(topClass.replace("_rupees", ""), 10);
-      if (isNaN(parsedDenomination)) return;
-
-      this.handleConfirmedDetection(parsedDenomination);
-    } catch (err) {
-      // Catch transient frame-grab exceptions during viewport resize
+  try {
+    if (!this.model) {
+      this.guidanceTip.textContent = "Model not loaded!";
+      return;
     }
+
+    const predictions = await this.model.predict(this.video);
+    
+    // Sort predictions highest to lowest
+    predictions.sort((a, b) => b.probability - a.probability);
+    const top = predictions[0];
+
+    // Debug readout: display highest class & score in real-time
+    this.guidanceTip.textContent = `${top.className}: ${(top.probability * 100).toFixed(0)}%`;
+
+    if (top.className === "background" || top.probability < this.CONFIDENCE_THRESHOLD) {
+      return;
+    }
+
+    // Handle label formats (e.g., "500_rupees", "₹500", "500", "500 Rupees")
+    const match = top.className.match(/\d+/);
+    if (!match) return;
+
+    const parsedDenomination = parseInt(match[0], 10);
+    this.handleConfirmedDetection(parsedDenomination);
+
+  } catch (err) {
+    console.error("Prediction error:", err);
+    this.guidanceTip.textContent = "Inference error";
   }
+}
 
   handleConfirmedDetection(denomination) {
     const now = Date.now();
