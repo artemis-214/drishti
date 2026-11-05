@@ -2,55 +2,65 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   <meta name="theme-color" content="#0a0a0a">
-  <meta name="description" content="Accessible real-time Indian Banknote Identifier with spatial audio and haptic feedback.">
-  <title>DivyaDrishti - Currency Identifier</title>
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Accessible real-time Indian Banknote Identifier for blind and low-vision users.">
+  <title>DivyaDrishti - Banknote Identifier</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Screen reader live regions for VoiceOver and TalkBack -->
-  <div id="sr-live-region" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
-  <div id="sr-status-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <!-- Dual Live Regions: Politeness Management -->
+  <div id="sr-assertive-region" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+  <div id="sr-polite-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
-  <!-- Entire screen touch target -->
-  <main id="app-viewport" role="application" aria-label="Interactive Banknote Scanner. Single tap repeats denomination, double tap toggles torch, two finger tap clears tally.">
-    <!-- Camera Viewfinder -->
+  <!-- Audio Unlock Overlay for Native Engine Compliance -->
+  <div id="audio-starter-overlay" role="dialog" aria-modal="true" aria-labelledby="starter-title" class="starter-overlay">
+    <div class="starter-dialog">
+      <h1 id="starter-title">DivyaDrishti Currency Identifier</h1>
+      <p>Tap anywhere to enable speech, spatial audio, and camera detection.</p>
+      <button id="btn-activate" class="action-btn" type="button">Start Scanner</button>
+    </div>
+  </div>
+
+  <!-- Main Viewport Interface -->
+  <main id="app-viewport" role="main" aria-label="Currency Scanner Viewport">
     <video id="camera-stream" playsinline autoplay muted aria-hidden="true"></video>
     <canvas id="inference-canvas" class="sr-only" aria-hidden="true"></canvas>
 
     <!-- Visual High-Contrast HUD -->
-    <section class="hud-overlay" aria-hidden="true">
-      <header class="hud-header">
-        <h1 class="hud-title">CURRENCY IDENTIFIER</h1>
-        <div id="torch-badge" class="badge">TORCH: OFF</div>
-      </header>
+    <header class="hud-header">
+      <h2 class="hud-title">CURRENCY IDENTIFIER</h2>
+      <div id="torch-badge" class="badge" aria-hidden="true">TORCH: OFF</div>
+    </header>
 
-      <div class="hud-main">
-        <div class="denomination-display">
-          <span class="label">DETECTED NOTE</span>
-          <span id="detected-val" class="value">READY</span>
-        </div>
-
-        <div class="tally-display">
-          <span class="label">RUNNING TOTAL</span>
-          <span id="tally-val" class="value">₹0</span>
-        </div>
+    <section class="hud-main" aria-label="Detection Readouts">
+      <div class="display-box">
+        <span class="label">DETECTED NOTE</span>
+        <span id="detected-val" class="value" aria-live="off">READY</span>
       </div>
 
-      <footer class="hud-footer">
-        <p id="guidance-text" class="guidance-hint">Align banknote within camera view</p>
-        <p class="gesture-hints">1 Tap: Repeat | 2 Tap: Torch | 2 Fingers: Reset</p>
-      </footer>
+      <div class="display-box">
+        <span class="label">RUNNING TOTAL</span>
+        <span id="tally-val" class="value" aria-live="off">₹0</span>
+      </div>
+      
+      <p id="guidance-text" class="guidance-hint" aria-live="off">Align note within camera</p>
     </section>
 
-    <!-- Fallback Accessible Button Controls for Keyboard Navigation -->
-    <nav class="sr-only" aria-label="Accessible Controls">
-      <button id="btn-repeat" type="button">Repeat Last Detection</button>
-      <button id="btn-torch" type="button">Toggle Flashlight</button>
-      <button id="btn-reset" type="button">Reset Total Tally</button>
-    </nav>
+    <!-- Large-Format, Accessible Tactile Buttons (VoiceOver, TalkBack, and Switch Compatible) -->
+    <footer class="controls-container" role="region" aria-label="Scanner Controls">
+      <button id="btn-repeat" class="action-btn" type="button" aria-label="Repeat last detected denomination">
+        Repeat Note
+      </button>
+      <button id="btn-torch" class="action-btn" type="button" aria-label="Toggle camera flashlight">
+        Toggle Torch
+      </button>
+      <button id="btn-reset" class="action-btn btn-danger" type="button" aria-label="Reset session total tally to zero">
+        Reset Total
+      </button>
+    </footer>
   </main>
 
   <script src="app.js"></script>

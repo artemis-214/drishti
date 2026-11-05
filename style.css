@@ -1,21 +1,18 @@
 :root {
   --color-bg: #0a0a0a;
-  --color-high-contrast: #ffe500;
+  --color-high-contrast: #ffe500; /* WCAG AAA 15.8:1 contrast against black */
+  --color-surface: #141414;
   --color-text-sub: #ffffff;
   --color-border: #ffe500;
-  --color-badge-off: #333333;
-  --color-badge-on: #ffe500;
-  --font-primary: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --min-touch-target: 48px;
+  --color-focus: #00e5ff;
+  --min-touch-target: 56px;
+  --font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 html, body {
@@ -23,11 +20,11 @@ html, body {
   height: 100%;
   background-color: var(--color-bg);
   color: var(--color-high-contrast);
-  font-family: var(--font-primary);
-  overflow: hidden;
+  font-family: var(--font-family);
+  overflow-x: hidden;
 }
 
-/* WCAG AAA Accessible Screen Reader Utility */
+/* WCAG AAA Screen Reader Only Utility */
 .sr-only {
   position: absolute !important;
   width: 1px !important;
@@ -40,6 +37,46 @@ html, body {
   border: 0 !important;
 }
 
+/* Audio Unlock Barrier */
+.starter-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background-color: var(--color-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.starter-overlay.hidden {
+  display: none;
+}
+
+.starter-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 440px;
+  text-align: center;
+  border: 4px solid var(--color-border);
+  padding: 32px 24px;
+  background-color: var(--color-surface);
+}
+
+.starter-dialog h1 {
+  font-size: 1.8rem;
+  color: var(--color-high-contrast);
+  font-weight: 900;
+}
+
+.starter-dialog p {
+  color: var(--color-text-sub);
+  font-size: 1.15rem;
+  line-height: 1.4;
+}
+
+/* Primary Application Shell */
 #app-viewport {
   position: relative;
   width: 100vw;
@@ -47,112 +84,137 @@ html, body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  padding: clamp(12px, 3vw, 24px);
   background-color: var(--color-bg);
-  cursor: pointer;
 }
 
 #camera-stream {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.35; /* Keeps camera feed visible while maintaining high-contrast foreground legibility */
-  z-index: 1;
-}
-
-.hud-overlay {
-  position: relative;
-  z-index: 2;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: clamp(16px, 4vw, 32px);
-  pointer-events: none;
+  opacity: 0.25;
+  z-index: 0;
 }
 
 .hud-header {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-bottom: 3px solid var(--color-border);
-  padding-bottom: 12px;
+  padding-bottom: 8px;
 }
 
 .hud-title {
-  font-size: clamp(1.2rem, 3.5vw, 1.8rem);
+  font-size: 1.3rem;
   font-weight: 900;
-  letter-spacing: 0.1em;
-  color: var(--color-high-contrast);
+  letter-spacing: 0.05em;
 }
 
 .badge {
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 800;
-  padding: 6px 12px;
-  border: 2px solid var(--color-high-contrast);
-  background-color: var(--color-badge-off);
+  padding: 8px 12px;
+  border: 2px solid var(--color-border);
+  background: var(--color-surface);
   color: var(--color-text-sub);
-  border-radius: 4px;
-  min-height: var(--min-touch-target);
-  display: flex;
-  align-items: center;
 }
 
 .badge.active {
-  background-color: var(--color-badge-on);
+  background: var(--color-high-contrast);
   color: #000000;
 }
 
 .hud-main {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
+  margin: auto 0;
 }
 
-.denomination-display, .tally-display {
-  display: flex;
-  flex-direction: column;
-  background: rgba(10, 10, 10, 0.85);
-  border: 2px solid var(--color-border);
-  padding: 16px;
-  border-radius: 8px;
+.display-box {
+  background-color: rgba(10, 10, 10, 0.92);
+  border: 3px solid var(--color-border);
+  padding: 16px 20px;
+  border-radius: 4px;
 }
 
 .label {
-  font-size: clamp(0.9rem, 2.5vw, 1.2rem);
-  color: var(--color-text-sub);
+  display: block;
+  font-size: 1rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  color: var(--color-text-sub);
   margin-bottom: 4px;
 }
 
 .value {
-  font-size: clamp(2.4rem, 8vw, 4.2rem);
+  display: block;
+  font-size: clamp(2.5rem, 8vw, 4rem);
   font-weight: 900;
-  color: var(--color-high-contrast);
-  line-height: 1.1;
-}
-
-.hud-footer {
-  border-top: 3px solid var(--color-border);
-  padding-top: 12px;
-  background: rgba(10, 10, 10, 0.85);
-  border-radius: 4px;
+  line-height: 1;
 }
 
 .guidance-hint {
-  font-size: clamp(1.1rem, 3vw, 1.6rem);
+  font-size: 1.25rem;
   font-weight: 800;
   color: var(--color-high-contrast);
-  margin-bottom: 6px;
+  background-color: rgba(10, 10, 10, 0.92);
+  padding: 10px;
+  border: 2px solid var(--color-border);
+  text-align: center;
 }
 
-.gesture-hints {
-  font-size: clamp(0.85rem, 2vw, 1rem);
-  color: var(--color-text-sub);
-  font-weight: 600;
+/* Touch & Screen Reader Button Layout */
+.controls-container {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.action-btn {
+  min-height: var(--min-touch-target);
+  font-size: 1.05rem;
+  font-weight: 900;
+  font-family: inherit;
+  color: #000000;
+  background-color: var(--color-high-contrast);
+  border: 3px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 10px 8px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-btn:focus-visible {
+  outline: 4px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.action-btn:active {
+  transform: scale(0.98);
+}
+
+.btn-danger {
+  background-color: #0a0a0a;
+  color: var(--color-high-contrast);
+}
+
+@media (max-width: 600px) {
+  .controls-container {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .action-btn {
+    min-height: 52px;
+  }
 }
