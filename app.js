@@ -1,325 +1,365 @@
 /**
- * WCAG 2.2 AAA Compliant Real-Time Indian Banknote Identifier
+ * Indian Banknote Identifier
+ * Accessible PWA with Teachable Machine Vision, Multi-Sense Haptics, and Web Speech
  */
 
-class BanknoteIdentifier {
+class IndianBanknoteIdentifier {
   constructor() {
+    // Relative path safe for GitHub Pages deployments
+    this.MODEL_PATH = './model/';
+
+    // DOM References
     this.video = document.getElementById('camera-stream');
-    this.canvas = document.getElementById('inference-canvas');
-    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
-    
-    this.srAssertive = document.getElementById('sr-assertive-region');
-    this.srPolite = document.getElementById('sr-polite-region');
-    
-    this.detectedValEl = document.getElementById('detected-val');
-    this.tallyValEl = document.getElementById('tally-val');
-    this.guidanceTextEl = document.getElementById('guidance-text');
-    this.torchBadge = document.getElementById('torch-badge');
-    this.viewport = document.getElementById('app-viewport');
-    this.starterOverlay = document.getElementById('audio-starter-overlay');
-    this.btnActivate = document.getElementById('btn-activate');
+    this.announcer = document.getElementById('announcer');
+    this.displayNote = document.getElementById('display-note');
+    this.displayTally = document.getElementById('display-tally');
+    this.badgeMode = document.getElementById('badge-mode');
+    this.badgeTorch = document.getElementById('badge-torch');
+    this.guidanceTip = document.getElementById('guidance-tip');
+    this.surface = document.getElementById('app-surface');
+    this.gateOverlay = document.getElementById('gate-overlay');
+    this.btnGateStart = document.getElementById('btn-gate-start');
 
+    // Model and Stream State
+    this.model = null;
     this.stream = null;
-    this.track = null;
+    this.videoTrack = null;
     this.isTorchOn = false;
-    this.runningTotal = 0;
-    this.lastDetectedDenomination = null;
-    this.consecutiveDetections = 0;
-    this.activePrediction = null;
-    this.isProcessing = false;
-    this.audioContext = null;
+    this.isTallyMode = true; // Defaults to continuous tallying
+    this.isRunning = false;
 
-    // Haptics tuned for street vibration profiles
-    this.HAPTICS = {
+    // Financial State
+    this.sessionTotal = 0;
+    this.lastDetectedDenomination = null;
+    this.lastSpokenText = '';
+    this.lastConfirmedTime = 0;
+
+    // Detection Thresholds
+    this.CONFIDENCE_THRESHOLD = 0.85;
+    this.REPEAT_WINDOW_MS = 2500; // 2.5 seconds debounce for the same bill
+    this.INFERENCE_INTERVAL_MS = 250; // Throttled inference loop
+
+    // Haptic vibration profiles (ms)
+    this.HAPTIC_PROFILES = {
       10: [100],
-      20: [150, 80, 150],
+      20: [100, 50, 100],
       50: [300],
       100: [300, 100, 100],
-      200: [300, 100, 200, 100],
+      200: [300, 100, 300],
       500: [300, 100, 300, 100, 300],
-      reset: [80, 40, 80, 40, 80],
-      torch: [60],
-      boundary: [30]
+      reset: [80, 50, 80, 50, 80],
+      torch: [60]
     };
 
-    this.lastAnnouncement = '';
-    this.lastAnnouncementTime = 0;
+    // Words lookup for clean screen reader/speech articulation
+    this.WORDS_MAP = {
+      10: "Ten",
+      20: "Twenty",
+      50: "Fifty",
+      100: "One hundred",
+      200: "Two hundred",
+      500: "Five hundred"
+    };
 
-    this.init();
+    // Gesture State
+    this.lastTapTime = 0;
+    this.singleTapTimer = null;
+    this.touchStartTime = 0;
+    this.longPressTimer = null;
+
+    this.bindInit();
   }
 
-  init() {
-    this.btnActivate.addEventListener('click', () => this.unlockAndStart());
-    this.bindControls();
+  bindInit() {
+    this.btnGateStart.addEventListener('click', () => this.unlockAndStart());
     this.registerServiceWorker();
   }
 
   async unlockAndStart() {
-    this.initAudio();
-    this.starterOverlay.classList.add('hidden');
-    await this.startCamera();
-    this.announce("Scanner started. Present banknote.", "assertive");
-    this.startInferencePipeline();
-  }
-
-  /* ---------------- AUDIO & SCREEN READER CORE ---------------- */
-
-  initAudio() {
-    if (!this.audioContext) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      this.audioContext = new AudioCtx();
-    }
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume();
-    }
-  }
-
-  announce(message, priority = 'polite') {
-    const targetRegion = priority === 'assertive' ? this.srAssertive : this.srPolite;
+    this.gateOverlay.classList.add('hidden');
     
-    // Clear first to guarantee re-announcement of identical values by VoiceOver/TalkBack
-    targetRegion.textContent = '';
-    setTimeout(() => {
-      targetRegion.textContent = message;
-    }, 40);
+    // Unlock AudioContext & SpeechSynthesis on physical user interaction
+    this.speak("Starting camera and loading currency model.", true);
 
-    this.speak(message, priority === 'assertive');
+    try {
+      await Promise.all([this.initCamera(), this.loadModel()]);
+      this.bindGestures();
+      this.bindAccessibleButtons();
+      this.isRunning = true;
+      this.speak("Scanner ready. Point camera at banknote.", true);
+      this.runInferenceLoop();
+    } catch (err) {
+      console.error("Initialization error:", err);
+      this.speak("System error. Please verify camera permissions and reload.", true);
+    }
   }
 
-  speak(text, cancelOngoing = false) {
-    if (!('speechSynthesis' in window)) return;
+  /* ---------------- HARDWARE SUBSYSTEMS ---------------- */
 
+  async initCamera() {
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      }
+    };
+
+    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    this.video.srcObject = this.stream;
+    this.videoTrack = this.stream.getVideoTracks()[0];
+
+    return new Promise((resolve) => {
+      this.video.onloadedmetadata = () => {
+        this.video.play();
+        resolve();
+      };
+    });
+  }
+
+  async loadModel() {
+    const modelURL = `${this.MODEL_PATH}model.json`;
+    const metadataURL = `${this.MODEL_PATH}metadata.json`;
+    
+    this.model = await tmImage.load(modelURL, metadataURL);
+  }
+
+  async toggleTorch() {
+    if (!this.videoTrack) return;
+
+    try {
+      const capabilities = this.videoTrack.getCapabilities ? this.videoTrack.getCapabilities() : {};
+      if (!capabilities.torch) {
+        this.speak("Torch not supported on this device.", true);
+        return;
+      }
+
+      this.isTorchOn = !this.isTorchOn;
+      await this.videoTrack.applyConstraints({
+        advanced: [{ torch: this.isTorchOn }]
+      });
+
+      this.vibrate(this.HAPTIC_PROFILES.torch);
+      this.badgeTorch.textContent = `TORCH: ${this.isTorchOn ? 'ON' : 'OFF'}`;
+      this.badgeTorch.classList.toggle('badge-dim', !this.isTorchOn);
+      this.speak(`Flashlight ${this.isTorchOn ? 'on' : 'off'}.`, true);
+    } catch (e) {
+      this.speak("Unable to toggle flashlight.", true);
+    }
+  }
+
+  /* ---------------- INFERENCE & PREDICTION ---------------- */
+
+  runInferenceLoop() {
+    const step = async () => {
+      if (this.isRunning && this.video.readyState === this.video.HAVE_ENOUGH_DATA) {
+        await this.predictFrame();
+      }
+      setTimeout(step, this.INFERENCE_INTERVAL_MS);
+    };
+    step();
+  }
+
+  async predictFrame() {
+    try {
+      const predictions = await this.model.predict(this.video);
+      let highestProb = 0;
+      let topClass = "";
+
+      for (let i = 0; i < predictions.length; i++) {
+        if (predictions[i].probability > highestProb) {
+          highestProb = predictions[i].probability;
+          topClass = predictions[i].className;
+        }
+      }
+
+      // Ignore background noise or indeterminate certainty
+      if (topClass === "background" || highestProb < this.CONFIDENCE_THRESHOLD) {
+        return;
+      }
+
+      // Parse integer denomination from standard label convention (e.g., "500_rupees" -> 500)
+      const parsedDenomination = parseInt(topClass.replace("_rupees", ""), 10);
+      if (isNaN(parsedDenomination)) return;
+
+      this.handleConfirmedDetection(parsedDenomination);
+    } catch (err) {
+      // Catch transient frame-grab exceptions during viewport resize
+    }
+  }
+
+  handleConfirmedDetection(denomination) {
     const now = Date.now();
-    if (!cancelOngoing && text === this.lastAnnouncement && (now - this.lastAnnouncementTime) < 1500) {
+    const isSameBill = denomination === this.lastDetectedDenomination;
+    const isDebounced = (now - this.lastConfirmedTime) < this.REPEAT_WINDOW_MS;
+
+    // Suppress duplicate triggers for an identical bill held steady
+    if (isSameBill && isDebounced) {
       return;
     }
 
-    if (cancelOngoing) {
+    this.lastDetectedDenomination = denomination;
+    this.lastConfirmedTime = now;
+
+    // Financial running tally aggregation
+    this.sessionTotal += denomination;
+
+    // Update visuals
+    this.displayNote.textContent = `₹${denomination}`;
+    this.displayTally.textContent = `₹${this.sessionTotal}`;
+    this.guidanceTip.textContent = `Detected ₹${denomination}`;
+
+    // Sensory Outputs
+    this.vibrate(this.HAPTIC_PROFILES[denomination] || [200]);
+
+    const denominationText = `${this.WORDS_MAP[denomination] || denomination} rupees`;
+    let announcement = "";
+
+    if (this.isTallyMode) {
+      announcement = `${denominationText}. Running total: ${this.sessionTotal} rupees.`;
+    } else {
+      announcement = `${denominationText}.`;
+    }
+
+    this.speak(announcement, true);
+  }
+
+  /* ---------------- SPEECH & HAPTICS ---------------- */
+
+  speak(text, cancelCurrent = false) {
+    if (!('speechSynthesis' in window)) return;
+
+    if (cancelCurrent) {
       window.speechSynthesis.cancel();
     }
 
+    // Mirror to WCAG assertive region for active TalkBack / VoiceOver listeners
+    this.announcer.textContent = '';
+    setTimeout(() => {
+      this.announcer.textContent = text;
+    }, 20);
+
     const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-IN";
     utterance.rate = 1.05;
-    utterance.pitch = 1.0;
 
+    // Favor English (India) voices when indexed
     const voices = window.speechSynthesis.getVoices();
-    const subcontinentalVoice = voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang === 'hi-IN');
-    if (subcontinentalVoice) utterance.voice = subcontinentalVoice;
+    const localizedVoice = voices.find(v => v.lang === 'en-IN');
+    if (localizedVoice) utterance.voice = localizedVoice;
 
-    this.lastAnnouncement = text;
-    this.lastAnnouncementTime = now;
+    this.lastSpokenText = text;
     window.speechSynthesis.speak(utterance);
-  }
-
-  playSpatialFeedback(panX) {
-    if (!this.audioContext) return;
-    
-    const osc = this.audioContext.createOscillator();
-    const gain = this.audioContext.createGain();
-    const panner = this.audioContext.createStereoPanner ? this.audioContext.createStereoPanner() : null;
-
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(800, this.audioContext.currentTime);
-
-    gain.gain.setValueAtTime(0.001, this.audioContext.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.2, this.audioContext.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.07);
-
-    if (panner) {
-      panner.pan.setValueAtTime(Math.max(-1, Math.min(1, panX)), this.audioContext.currentTime);
-      osc.connect(gain);
-      gain.connect(panner);
-      panner.connect(this.audioContext.destination);
-    } else {
-      osc.connect(gain);
-      gain.connect(this.audioContext.destination);
-    }
-
-    osc.start();
-    osc.stop(this.audioContext.currentTime + 0.08);
   }
 
   vibrate(pattern) {
     if ('vibrate' in navigator) {
-      try { navigator.vibrate(pattern); } catch (e) { /* vendor safe */ }
+      try {
+        navigator.vibrate(pattern);
+      } catch (e) {
+        // Safe fallback for restricted permissions
+      }
     }
   }
 
-  /* ---------------- HARDWARE CONTROLS ---------------- */
+  /* ---------------- GESTURE & ACCESSIBILITY HANDLERS ---------------- */
 
-  async startCamera() {
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          focusMode: { ideal: 'continuous' }
-        }
-      });
-      this.video.srcObject = this.stream;
-      this.track = this.stream.getVideoTracks()[0];
-      await this.video.play();
-    } catch (err) {
-      this.announce("Camera permission denied. Visual detection is inactive.", "assertive");
-      this.guidanceTextEl.textContent = "Camera access denied";
-    }
-  }
-
-  async toggleTorch() {
-    if (!this.track) return;
-    try {
-      const caps = this.track.getCapabilities ? this.track.getCapabilities() : {};
-      if (!caps.torch) {
-        this.announce("Flashlight unavailable on this device", "polite");
+  bindGestures() {
+    this.surface.addEventListener('touchstart', (e) => {
+      // 1. Two-finger tap detection (Immediate reset)
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        clearTimeout(this.singleTapTimer);
+        clearTimeout(this.longPressTimer);
+        this.resetTally();
         return;
       }
-      this.isTorchOn = !this.isTorchOn;
-      await this.track.applyConstraints({ advanced: [{ torch: this.isTorchOn }] });
-      this.vibrate(this.HAPTICS.torch);
-      this.torchBadge.textContent = `TORCH: ${this.isTorchOn ? 'ON' : 'OFF'}`;
-      this.torchBadge.classList.toggle('active', this.isTorchOn);
-      this.announce(`Flashlight ${this.isTorchOn ? 'on' : 'off'}`, "polite");
-    } catch (err) {
-      this.announce("Failed to toggle flashlight", "polite");
-    }
-  }
 
-  /* ---------------- INFERENCE & AUDITORY SPATIALIZATION ---------------- */
-
-  startInferencePipeline() {
-    const cycle = async () => {
-      if (this.video.readyState === this.video.HAVE_ENOUGH_DATA && !this.isProcessing) {
-        this.isProcessing = true;
-        await this.detectFrame();
-        this.isProcessing = false;
+      // 2. Long Press fallback detection (1.5 seconds)
+      if (e.touches.length === 1) {
+        this.touchStartTime = Date.now();
+        this.longPressTimer = setTimeout(() => {
+          this.resetTally();
+        }, 1500);
       }
-      requestAnimationFrame(cycle);
-    };
-    requestAnimationFrame(cycle);
-  }
+    }, { passive: false });
 
-  async detectFrame() {
-    this.canvas.width = this.video.videoWidth || 640;
-    this.canvas.height = this.video.videoHeight || 480;
-    this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+    this.surface.addEventListener('touchend', (e) => {
+      clearTimeout(this.longPressTimer);
 
-    const frameData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-    const detection = await this.runInference(frameData);
+      // Do not process single/double tap if touch was held past 600ms
+      if (Date.now() - this.touchStartTime > 600) {
+        return;
+      }
 
-    if (detection && detection.found) {
-      this.evaluateAlignment(detection.box);
-      this.handleVerification(detection.denomination, detection.score);
-    } else {
-      this.consecutiveDetections = 0;
-      this.activePrediction = null;
-    }
-  }
+      if (e.touches.length > 0) return;
 
-  async runInference(frameData) {
-    // Model inference contract placeholder (TensorFlow.js / Edge ML)
-    return null;
-  }
+      const currentTime = Date.now();
+      const tapGap = currentTime - this.lastTapTime;
 
-  evaluateAlignment(box) {
-    if (!box) return;
-    const centerX = box.xMin + (box.width / 2);
-    const boxArea = box.width * box.height;
-
-    if (boxArea > 0.85) {
-      this.announce("Move back", "assertive");
-      this.vibrate(this.HAPTICS.boundary);
-      return;
-    }
-
-    if (centerX < 0.35) {
-      this.playSpatialFeedback(-0.8);
-      this.guidanceTextEl.textContent = "Shift right";
-    } else if (centerX > 0.65) {
-      this.playSpatialFeedback(0.8);
-      this.guidanceTextEl.textContent = "Shift left";
-    } else {
-      this.guidanceTextEl.textContent = "Aligned centered";
-    }
-  }
-
-  handleVerification(denomination, confidence) {
-    if (confidence < 0.85) return;
-
-    if (this.activePrediction === denomination) {
-      this.consecutiveDetections++;
-    } else {
-      this.activePrediction = denomination;
-      this.consecutiveDetections = 1;
-    }
-
-    if (this.consecutiveDetections === 3) {
-      this.commitDetection(denomination);
-    }
-  }
-
-  commitDetection(value) {
-    this.lastDetectedDenomination = value;
-    this.runningTotal += value;
-
-    this.detectedValEl.textContent = `₹${value}`;
-    this.tallyValEl.textContent = `₹${this.runningTotal}`;
-
-    this.vibrate(this.HAPTICS[value] || [200]);
-    this.announce(`${value} rupees. Total: ${this.runningTotal} rupees.`, "assertive");
-  }
-
-  /* ---------------- INTERFACES (TOUCH & SWITCH) ---------------- */
-
-  bindControls() {
-    // Physical Button Controls (Guaranteed TalkBack / VoiceOver Activation Target)
-    document.getElementById('btn-repeat').addEventListener('click', () => this.repeatLast());
-    document.getElementById('btn-torch').addEventListener('click', () => this.toggleTorch());
-    document.getElementById('btn-reset').addEventListener('click', () => this.resetTally());
-
-    // Fallback Viewport Tap for non-screen reader users who prefer direct surface gestures
-    let lastTap = 0;
-    this.viewport.addEventListener('touchend', (e) => {
-      // Ignore if clicking direct buttons
-      if (e.target.closest('button')) return;
-
-      const now = Date.now();
-      if (now - lastTap < 300) {
+      if (tapGap < 300 && tapGap > 0) {
+        // Double tap: Torch toggle
+        clearTimeout(this.singleTapTimer);
         this.toggleTorch();
       } else {
-        setTimeout(() => {
-          if (Date.now() - lastTap >= 300) this.repeatLast();
+        // Single tap: Schedule repeat
+        this.singleTapTimer = setTimeout(() => {
+          this.repeatAnnouncement();
         }, 300);
       }
-      lastTap = now;
+
+      this.lastTapTime = currentTime;
     });
   }
 
-  repeatLast() {
+  bindAccessibleButtons() {
+    document.getElementById('sr-btn-repeat').addEventListener('click', () => this.repeatAnnouncement());
+    document.getElementById('sr-btn-torch').addEventListener('click', () => this.toggleTorch());
+    document.getElementById('sr-btn-reset').addEventListener('click', () => this.resetTally());
+    document.getElementById('sr-btn-mode').addEventListener('click', () => this.toggleMode());
+  }
+
+  repeatAnnouncement() {
+    this.vibrate([60]);
     if (this.lastDetectedDenomination) {
-      this.announce(`Last note: ${this.lastDetectedDenomination} rupees. Total: ${this.runningTotal} rupees.`, "assertive");
+      const phrase = `Last note: ${this.WORDS_MAP[this.lastDetectedDenomination] || this.lastDetectedDenomination} rupees. Session total: ${this.sessionTotal} rupees.`;
+      this.speak(phrase, true);
     } else {
-      this.announce(`No note detected yet. Total: ${this.runningTotal} rupees.`, "assertive");
+      this.speak(`No note scanned yet. Session total: ${this.sessionTotal} rupees.`, true);
     }
   }
 
   resetTally() {
-    this.runningTotal = 0;
+    this.sessionTotal = 0;
     this.lastDetectedDenomination = null;
-    this.tallyValEl.textContent = "₹0";
-    this.detectedValEl.textContent = "READY";
-    this.vibrate(this.HAPTICS.reset);
-    this.announce("Total cleared. Running total is zero rupees.", "assertive");
+    this.displayTally.textContent = "₹0";
+    this.displayNote.textContent = "READY";
+    this.guidanceTip.textContent = "Tally reset to zero";
+
+    this.vibrate(this.HAPTIC_PROFILES.reset);
+    this.speak("Tally reset to zero.", true);
+  }
+
+  toggleMode() {
+    this.isTallyMode = !this.isTallyMode;
+    this.badgeMode.textContent = this.isTallyMode ? "TALLY MODE" : "SINGLE SCAN";
+    this.speak(`Switched to ${this.isTallyMode ? "Tally Mode" : "Single Scan Mode"}.`, true);
   }
 
   registerServiceWorker() {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+      window.addEventListener('load', () => {
+        // Relative scope for GitHub Pages compatibility
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('DivyaDrishti SW registered with scope:', reg.scope))
+          .catch(err => console.error('SW registration failed:', err));
+      });
     }
   }
 }
 
+// Instantiate engine when DOM is parsed
 window.addEventListener('DOMContentLoaded', () => {
-  new BanknoteIdentifier();
+  window.identifier = new IndianBanknoteIdentifier();
 });

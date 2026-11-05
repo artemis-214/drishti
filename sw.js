@@ -1,15 +1,27 @@
-const CACHE_NAME = 'divyadrishti-v1-cache';
+/**
+ * Service Worker: Cache-First Offline Engine
+ * Caches application shell, pinned ML scripts, and exported Teachable Machine model artifacts.
+ */
+
+const CACHE_NAME = 'banknote-identifier-v1';
+
 const STATIC_ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
-  './manifest.json'
+  './manifest.json',
+  './model/model.json',
+  './model/metadata.json',
+  './model/weights.bin',
+  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
+  'https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
+      // Atomic addAll guarantees all runtime and model files are secured offline
       return cache.addAll(STATIC_ASSETS);
     }).then(() => self.skipWaiting())
   );
@@ -17,11 +29,11 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
+    caches.keys().then((cacheNames) => {
       return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
+        cacheNames.map((name) => {
+          if (name !== CACHE_NAME) {
+            return caches.delete(name);
           }
         })
       );
@@ -30,19 +42,18 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Navigation & resource requests: Cache-First strategy with network fallback
+  // Disregard non-GET requests
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
+
       return fetch(event.request).then((networkResponse) => {
-        // Cache valid responses for dynamically fetched assets
-        if (
-          !networkResponse ||
-          networkResponse.status !== 200 ||
-          networkResponse.type !== 'basic'
-        ) {
+        // Validate network response before committing to runtime cache
+        if (!networkResponse || networkResponse.status !== 200) {
           return networkResponse;
         }
 
@@ -53,7 +64,7 @@ self.addEventListener('fetch', (event) => {
 
         return networkResponse;
       }).catch(() => {
-        // Fallback for document requests when offline
+        // Fallback for navigation routes
         if (event.request.mode === 'navigate') {
           return caches.match('./index.html');
         }

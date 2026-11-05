@@ -3,66 +3,70 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-  <meta name="theme-color" content="#0a0a0a">
+  <meta name="theme-color" content="#0A0A0A">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Accessible real-time Indian Banknote Identifier for blind and low-vision users.">
-  <title>DivyaDrishti - Banknote Identifier</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="style.css">
+  <meta name="description" content="Accessible real-time Indian Banknote Identifier with continuous tallying, spatial audio feedback, and haptic signatures.">
+  <title>Exhibition</title>
+  
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./style.css">
+
+  <!-- TensorFlow.js & Teachable Machine Image Library (Pinned CDN versions for predictable caching) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
 </head>
 <body>
-  <!-- Dual Live Regions: Politeness Management -->
-  <div id="sr-assertive-region" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
-  <div id="sr-polite-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <!-- WCAG 2.2 Assertive Live Region for Screen Readers -->
+  <div id="announcer" aria-live="assertive" aria-atomic="true" class="sr-only"></div>
 
-  <!-- Audio Unlock Overlay for Native Engine Compliance -->
-  <div id="audio-starter-overlay" role="dialog" aria-modal="true" aria-labelledby="starter-title" class="starter-overlay">
-    <div class="starter-dialog">
-      <h1 id="starter-title">DivyaDrishti Currency Identifier</h1>
-      <p>Tap anywhere to enable speech, spatial audio, and camera detection.</p>
-      <button id="btn-activate" class="action-btn" type="button">Start Scanner</button>
+  <!-- Audio & Camera Unlock Barrier -->
+  <div id="gate-overlay" role="dialog" aria-modal="true" aria-labelledby="gate-title" class="gate-overlay">
+    <div class="gate-card">
+      <h1 id="gate-title">Exhibition</h1>
+      <p>Tap anywhere to enable speech, audio cues, and camera recognition.</p>
+      <button id="btn-gate-start" class="btn-primary" type="button">Start Scanner</button>
     </div>
   </div>
 
-  <!-- Main Viewport Interface -->
-  <main id="app-viewport" role="main" aria-label="Currency Scanner Viewport">
+  <!-- Full-Screen Interactive Surface -->
+  <main id="app-surface" role="main" aria-label="Interactive Banknote Scanner Surface">
+    <!-- Camera Feed -->
     <video id="camera-stream" playsinline autoplay muted aria-hidden="true"></video>
-    <canvas id="inference-canvas" class="sr-only" aria-hidden="true"></canvas>
 
-    <!-- Visual High-Contrast HUD -->
-    <header class="hud-header">
-      <h2 class="hud-title">CURRENCY IDENTIFIER</h2>
-      <div id="torch-badge" class="badge" aria-hidden="true">TORCH: OFF</div>
-    </header>
+    <!-- Visual High-Contrast Head-Up Display (Yellow on Black) -->
+    <div class="hud" aria-hidden="true">
+      <header class="hud-top">
+        <span id="badge-mode" class="badge">TALLY MODE</span>
+        <span id="badge-torch" class="badge badge-dim">TORCH: OFF</span>
+      </header>
 
-    <section class="hud-main" aria-label="Detection Readouts">
-      <div class="display-box">
-        <span class="label">DETECTED NOTE</span>
-        <span id="detected-val" class="value" aria-live="off">READY</span>
-      </div>
+      <section class="hud-center">
+        <div class="stat-group">
+          <span class="stat-caption">LAST DETECTED</span>
+          <span id="display-note" class="stat-value note-value">READY</span>
+        </div>
 
-      <div class="display-box">
-        <span class="label">RUNNING TOTAL</span>
-        <span id="tally-val" class="value" aria-live="off">₹0</span>
-      </div>
-      
-      <p id="guidance-text" class="guidance-hint" aria-live="off">Align note within camera</p>
-    </section>
+        <div class="stat-group">
+          <span class="stat-caption">SESSION TALLY</span>
+          <span id="display-tally" class="stat-value tally-value">₹0</span>
+        </div>
+      </section>
 
-    <!-- Large-Format, Accessible Tactile Buttons (VoiceOver, TalkBack, and Switch Compatible) -->
-    <footer class="controls-container" role="region" aria-label="Scanner Controls">
-      <button id="btn-repeat" class="action-btn" type="button" aria-label="Repeat last detected denomination">
-        Repeat Note
-      </button>
-      <button id="btn-torch" class="action-btn" type="button" aria-label="Toggle camera flashlight">
-        Toggle Torch
-      </button>
-      <button id="btn-reset" class="action-btn btn-danger" type="button" aria-label="Reset session total tally to zero">
-        Reset Total
-      </button>
-    </footer>
+      <footer class="hud-bottom">
+        <p class="status-tip" id="guidance-tip">Point camera at a rupee note</p>
+        <p class="instruction-legend">1 Tap: Repeat | 2 Tap: Torch | 2 Fingers: Reset</p>
+      </footer>
+    </div>
+
+    <!-- Screen Reader & Switch-Accessible Control Deck -->
+    <nav class="sr-controls" aria-label="Accessible Hardware Controls">
+      <button id="sr-btn-repeat" type="button">Repeat Last Announcement</button>
+      <button id="sr-btn-mode" type="button">Toggle Tally Mode</button>
+      <button id="sr-btn-torch" type="button">Toggle Flashlight</button>
+      <button id="sr-btn-reset" type="button">Reset Running Tally to Zero</button>
+    </nav>
   </main>
 
-  <script src="app.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
