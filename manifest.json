@@ -1,7 +1,7 @@
 {
-  "name": "exhibition",
-  "short_name": "CurrencyID",
-  "description": "",
+  "name": "DivyaDrishti - Banknote Identifier",
+  "short_name": "BanknoteID",
+  "description": "Accessible real-time Indian Banknote Identifier for blind and low-vision individuals.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

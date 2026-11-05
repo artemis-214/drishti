@@ -1,6 +1,6 @@
 /**
- * Indian Banknote Identifier
- * Accessible PWA with Teachable Machine Vision, Multi-Sense Haptics, and Web Speech
+ * Indian Banknote Identifier (Identification Only)
+ * High-Contrast Accessible PWA with Teachable Machine Vision & Multimodal Feedback
  */
 
 class IndianBanknoteIdentifier {
@@ -12,8 +12,6 @@ class IndianBanknoteIdentifier {
     this.video = document.getElementById('camera-stream');
     this.announcer = document.getElementById('announcer');
     this.displayNote = document.getElementById('display-note');
-    this.displayTally = document.getElementById('display-tally');
-    this.badgeMode = document.getElementById('badge-mode');
     this.badgeTorch = document.getElementById('badge-torch');
     this.guidanceTip = document.getElementById('guidance-tip');
     this.surface = document.getElementById('app-surface');
@@ -25,19 +23,16 @@ class IndianBanknoteIdentifier {
     this.stream = null;
     this.videoTrack = null;
     this.isTorchOn = false;
-    this.isTallyMode = true; // Defaults to continuous tallying
     this.isRunning = false;
 
-    // Financial State
-    this.sessionTotal = 0;
+    // Detection State
     this.lastDetectedDenomination = null;
-    this.lastSpokenText = '';
     this.lastConfirmedTime = 0;
 
-    // Detection Thresholds
-    this.CONFIDENCE_THRESHOLD = 0.65;
-    this.REPEAT_WINDOW_MS = 2500; // 2.5 seconds debounce for the same bill
-    this.INFERENCE_INTERVAL_MS = 250; // Throttled inference loop
+    // Thresholds: Lowered to 0.70 to reliably register bills in casual lighting
+    this.CONFIDENCE_THRESHOLD = 0.70;
+    this.REPEAT_WINDOW_MS = 2500; // Debounce window for identical note held in front
+    this.INFERENCE_INTERVAL_MS = 250; // Throttled inference loop (~4 FPS)
 
     // Haptic vibration profiles (ms)
     this.HAPTIC_PROFILES = {
@@ -47,7 +42,6 @@ class IndianBanknoteIdentifier {
       100: [300, 100, 100],
       200: [300, 100, 300],
       500: [300, 100, 300, 100, 300],
-      reset: [80, 50, 80, 50, 80],
       torch: [60]
     };
 
@@ -64,8 +58,6 @@ class IndianBanknoteIdentifier {
     // Gesture State
     this.lastTapTime = 0;
     this.singleTapTimer = null;
-    this.touchStartTime = 0;
-    this.longPressTimer = null;
 
     this.bindInit();
   }
@@ -77,20 +69,19 @@ class IndianBanknoteIdentifier {
 
   async unlockAndStart() {
     this.gateOverlay.classList.add('hidden');
-
-    // Unlock AudioContext & SpeechSynthesis on physical user interaction
-    this.speak("Starting camera and loading currency model.", true);
+    this.speak("Starting camera and loading model.", true);
 
     try {
       await Promise.all([this.initCamera(), this.loadModel()]);
       this.bindGestures();
       this.bindAccessibleButtons();
       this.isRunning = true;
-      this.speak("Scanner ready. Point camera at banknote.", true);
+      this.speak("Scanner ready. Center banknote in front of camera.", true);
       this.runInferenceLoop();
     } catch (err) {
       console.error("Initialization error:", err);
-      this.speak("System error. Please verify camera permissions and reload.", true);
+      this.guidanceTip.textContent = "Error: Check camera & model files";
+      this.speak("Initialization failed. Please check camera permissions and model files.", true);
     }
   }
 
@@ -121,7 +112,6 @@ class IndianBanknoteIdentifier {
   async loadModel() {
     const modelURL = `${this.MODEL_PATH}model.json`;
     const metadataURL = `${this.MODEL_PATH}metadata.json`;
-
     this.model = await tmImage.load(modelURL, metadataURL);
   }
 
@@ -162,44 +152,39 @@ class IndianBanknoteIdentifier {
   }
 
   async predictFrame() {
-  try {
-    if (!this.model) {
-      this.guidanceTip.textContent = "Model not loaded!";
-      return;
+    try {
+      const predictions = await this.model.predict(this.video);
+      
+      // Sort to evaluate highest confidence class
+      predictions.sort((a, b) => b.probability - a.probability);
+      const top = predictions[0];
+
+      // Real-time HUD feedback showing live detection & certainty
+      const pct = (top.probability * 100).toFixed(0);
+      this.guidanceTip.textContent = `Scanning: ${top.className} (${pct}%)`;
+
+      // Ignore background or predictions below confidence threshold
+      if (top.className.toLowerCase().includes("background") || top.probability < this.CONFIDENCE_THRESHOLD) {
+        return;
+      }
+
+      // Robust number extraction (matches "500_rupees", "₹500", "500", etc.)
+      const match = top.className.match(/\d+/);
+      if (!match) return;
+
+      const denomination = parseInt(match[0], 10);
+      this.handleConfirmedDetection(denomination);
+    } catch (err) {
+      console.warn("Frame inference cycle skipped:", err);
     }
-
-    const predictions = await this.model.predict(this.video);
-    
-    // Sort predictions highest to lowest
-    predictions.sort((a, b) => b.probability - a.probability);
-    const top = predictions[0];
-
-    // Debug readout: display highest class & score in real-time
-    this.guidanceTip.textContent = `${top.className}: ${(top.probability * 100).toFixed(0)}%`;
-
-    if (top.className === "background" || top.probability < this.CONFIDENCE_THRESHOLD) {
-      return;
-    }
-
-    // Handle label formats (e.g., "500_rupees", "₹500", "500", "500 Rupees")
-    const match = top.className.match(/\d+/);
-    if (!match) return;
-
-    const parsedDenomination = parseInt(match[0], 10);
-    this.handleConfirmedDetection(parsedDenomination);
-
-  } catch (err) {
-    console.error("Prediction error:", err);
-    this.guidanceTip.textContent = "Inference error";
   }
-}
 
   handleConfirmedDetection(denomination) {
     const now = Date.now();
     const isSameBill = denomination === this.lastDetectedDenomination;
     const isDebounced = (now - this.lastConfirmedTime) < this.REPEAT_WINDOW_MS;
 
-    // Suppress duplicate triggers for an identical bill held steady
+    // Suppress continuous speech while holding the same bill still
     if (isSameBill && isDebounced) {
       return;
     }
@@ -207,26 +192,15 @@ class IndianBanknoteIdentifier {
     this.lastDetectedDenomination = denomination;
     this.lastConfirmedTime = now;
 
-    // Financial running tally aggregation
-    this.sessionTotal += denomination;
-
-    // Update visuals
+    // Update UI
     this.displayNote.textContent = `₹${denomination}`;
-    this.displayTally.textContent = `₹${this.sessionTotal}`;
-    this.guidanceTip.textContent = `Detected ₹${denomination}`;
+    this.guidanceTip.textContent = `Identified: ₹${denomination}`;
 
-    // Sensory Outputs
+    // Multimodal triggers
     this.vibrate(this.HAPTIC_PROFILES[denomination] || [200]);
 
-    const denominationText = `${this.WORDS_MAP[denomination] || denomination} rupees`;
-    let announcement = "";
-
-    if (this.isTallyMode) {
-      announcement = `${denominationText}. Running total: ${this.sessionTotal} rupees.`;
-    } else {
-      announcement = `${denominationText}.`;
-    }
-
+    const word = this.WORDS_MAP[denomination] || denomination;
+    const announcement = `${word} rupees.`;
     this.speak(announcement, true);
   }
 
@@ -239,7 +213,7 @@ class IndianBanknoteIdentifier {
       window.speechSynthesis.cancel();
     }
 
-    // Mirror to WCAG assertive region for active TalkBack / VoiceOver listeners
+    // Mirror to WCAG assertive live region for TalkBack / VoiceOver
     this.announcer.textContent = '';
     setTimeout(() => {
       this.announcer.textContent = text;
@@ -249,12 +223,10 @@ class IndianBanknoteIdentifier {
     utterance.lang = "en-IN";
     utterance.rate = 1.05;
 
-    // Favor English (India) voices when indexed
     const voices = window.speechSynthesis.getVoices();
-    const localizedVoice = voices.find(v => v.lang === 'en-IN');
-    if (localizedVoice) utterance.voice = localizedVoice;
+    const inVoice = voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang.startsWith('en'));
+    if (inVoice) utterance.voice = inVoice;
 
-    this.lastSpokenText = text;
     window.speechSynthesis.speak(utterance);
   }
 
@@ -263,7 +235,7 @@ class IndianBanknoteIdentifier {
       try {
         navigator.vibrate(pattern);
       } catch (e) {
-        // Safe fallback for restricted permissions
+        // Safe catch for vendor restriction policies
       }
     }
   }
@@ -271,44 +243,18 @@ class IndianBanknoteIdentifier {
   /* ---------------- GESTURE & ACCESSIBILITY HANDLERS ---------------- */
 
   bindGestures() {
-    this.surface.addEventListener('touchstart', (e) => {
-      // 1. Two-finger tap detection (Immediate reset)
-      if (e.touches.length === 2) {
-        e.preventDefault();
-        clearTimeout(this.singleTapTimer);
-        clearTimeout(this.longPressTimer);
-        this.resetTally();
-        return;
-      }
-
-      // 2. Long Press fallback detection (1.5 seconds)
-      if (e.touches.length === 1) {
-        this.touchStartTime = Date.now();
-        this.longPressTimer = setTimeout(() => {
-          this.resetTally();
-        }, 1500);
-      }
-    }, { passive: false });
-
     this.surface.addEventListener('touchend', (e) => {
-      clearTimeout(this.longPressTimer);
-
-      // Do not process single/double tap if touch was held past 600ms
-      if (Date.now() - this.touchStartTime > 600) {
-        return;
-      }
-
       if (e.touches.length > 0) return;
 
       const currentTime = Date.now();
       const tapGap = currentTime - this.lastTapTime;
 
       if (tapGap < 300 && tapGap > 0) {
-        // Double tap: Torch toggle
+        // Double Tap: Flashlight Toggle
         clearTimeout(this.singleTapTimer);
         this.toggleTorch();
       } else {
-        // Single tap: Schedule repeat
+        // Single Tap: Repeat Current Note
         this.singleTapTimer = setTimeout(() => {
           this.repeatAnnouncement();
         }, 300);
@@ -321,50 +267,28 @@ class IndianBanknoteIdentifier {
   bindAccessibleButtons() {
     document.getElementById('sr-btn-repeat').addEventListener('click', () => this.repeatAnnouncement());
     document.getElementById('sr-btn-torch').addEventListener('click', () => this.toggleTorch());
-    document.getElementById('sr-btn-reset').addEventListener('click', () => this.resetTally());
-    document.getElementById('sr-btn-mode').addEventListener('click', () => this.toggleMode());
   }
 
   repeatAnnouncement() {
     this.vibrate([60]);
     if (this.lastDetectedDenomination) {
-      const phrase = `Last note: ${this.WORDS_MAP[this.lastDetectedDenomination] || this.lastDetectedDenomination} rupees. Session total: ${this.sessionTotal} rupees.`;
-      this.speak(phrase, true);
+      const word = this.WORDS_MAP[this.lastDetectedDenomination] || this.lastDetectedDenomination;
+      this.speak(`${word} rupees.`, true);
     } else {
-      this.speak(`No note scanned yet. Session total: ${this.sessionTotal} rupees.`, true);
+      this.speak("No banknote identified yet.", true);
     }
-  }
-
-  resetTally() {
-    this.sessionTotal = 0;
-    this.lastDetectedDenomination = null;
-    this.displayTally.textContent = "₹0";
-    this.displayNote.textContent = "READY";
-    this.guidanceTip.textContent = "Tally reset to zero";
-
-    this.vibrate(this.HAPTIC_PROFILES.reset);
-    this.speak("Tally reset to zero.", true);
-  }
-
-  toggleMode() {
-    this.isTallyMode = !this.isTallyMode;
-    this.badgeMode.textContent = this.isTallyMode ? "TALLY MODE" : "SINGLE SCAN";
-    this.speak(`Switched to ${this.isTallyMode ? "Tally Mode" : "Single Scan Mode"}.`, true);
   }
 
   registerServiceWorker() {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        // Relative scope for GitHub Pages compatibility
         navigator.serviceWorker.register('./sw.js')
-          .then(reg => console.log('DivyaDrishti SW registered with scope:', reg.scope))
-          .catch(err => console.error('SW registration failed:', err));
+          .catch((err) => console.error('SW registration failed:', err));
       });
     }
   }
 }
 
-// Instantiate engine when DOM is parsed
 window.addEventListener('DOMContentLoaded', () => {
   window.identifier = new IndianBanknoteIdentifier();
 });

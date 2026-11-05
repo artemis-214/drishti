@@ -1,6 +1,6 @@
 :root {
   --color-bg: #0A0A0A;
-  --color-high-contrast: #FFE500; /* WCAG AAA 15.8:1 contrast against pure black */
+  --color-high-contrast: #FFE500; /* WCAG AAA 15.8:1 contrast on black */
   --color-subtext: #FFFFFF;
   --color-border: #FFE500;
   --color-focus: #00E5FF;
@@ -28,7 +28,6 @@ html, body {
   user-select: none;
 }
 
-/* Accessible Off-Screen Utility */
 .sr-only {
   position: absolute !important;
   width: 1px !important;
@@ -41,7 +40,7 @@ html, body {
   border: 0 !important;
 }
 
-/* Startup Gesture Gate */
+/* Initial Gesture Barrier */
 .gate-overlay {
   position: fixed;
   inset: 0;
@@ -96,7 +95,7 @@ html, body {
   outline-offset: 4px;
 }
 
-/* Touch Viewport */
+/* Viewport Layout */
 #app-surface {
   position: relative;
   width: 100vw;
@@ -110,11 +109,11 @@ html, body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.22;
+  opacity: 0.25;
   z-index: 0;
 }
 
-/* High-Contrast Readout Interface */
+/* High-Contrast Readouts */
 .hud {
   position: relative;
   z-index: 1;
@@ -152,23 +151,25 @@ html, body {
 .hud-center {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  justify-content: center;
+  align-items: stretch;
 }
 
 .stat-group {
   background-color: rgba(10, 10, 10, 0.94);
   border: 3px solid var(--color-border);
-  padding: 16px 20px;
-  border-radius: 6px;
+  padding: 28px 20px;
+  border-radius: 8px;
+  text-align: center;
 }
 
 .stat-caption {
   display: block;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   font-weight: 800;
   color: var(--color-subtext);
-  letter-spacing: 0.06em;
-  margin-bottom: 4px;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
 }
 
 .stat-value {
@@ -178,12 +179,7 @@ html, body {
 }
 
 .note-value {
-  font-size: 2.4rem;
-  color: var(--color-high-contrast);
-}
-
-.tally-value {
-  font-size: 2.1rem;
+  font-size: clamp(3rem, 10vw, 4.5rem);
   color: var(--color-high-contrast);
 }
 
@@ -193,23 +189,23 @@ html, body {
   gap: 8px;
   background-color: rgba(10, 10, 10, 0.94);
   border: 3px solid var(--color-border);
-  padding: 14px 16px;
+  padding: 16px;
   border-radius: 6px;
 }
 
 .status-tip {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 800;
   color: var(--color-high-contrast);
 }
 
 .instruction-legend {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--color-subtext);
   font-weight: 600;
 }
 
-/* Hidden Fallback Buttons for Accessibility Engines */
+/* Accessibility Buttons */
 .sr-controls {
   position: absolute;
   bottom: 0;
